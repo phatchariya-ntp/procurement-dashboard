@@ -116,6 +116,14 @@
   .icon-btn:hover{color:var(--text);background:var(--panel-3);}
   .icon-btn.danger:hover{color:var(--red);border-color:var(--red);}
 
+  .drag-handle{cursor:grab;color:var(--text-dim);padding:4px;display:inline-flex;align-items:center;}
+  .drag-handle:active{cursor:grabbing;}
+  tr.main-row.dragging{opacity:0.4;}
+  tr.main-row.drag-over{box-shadow:inset 0 2px 0 var(--blue);}
+  .overdue-badge{display:inline-block;margin-top:5px;font-size:10.5px;font-weight:700;color:var(--red);background:var(--red-soft);padding:2px 8px;border-radius:6px;}
+  .date-preview{font-size:11px;color:var(--text-dim);margin-top:3px;}
+  .note-line{font-size:11.5px;color:var(--text-muted);font-style:italic;margin-top:5px;}
+
   tr.items-detail-row td{background:var(--panel-2);padding:0;}
   .items-detail-inner{padding:14px 20px;}
   .item-detail-table{width:100%;border-collapse:collapse;font-size:12.5px;}
@@ -263,10 +271,11 @@
         </div>
         <div class="field"><label>เลขที่ PO</label><input type="text" id="f_poNumber" placeholder="PO-2569-001" required></div>
 
-        <div class="field"><label>วันที่เปิด PO</label><input type="date" id="f_date" required></div>
-        <div class="field"><label>วันที่ทำจ่าย</label><input type="date" id="f_paymentDate" required>
+        <div class="field"><label>วันที่เปิด PO</label><input type="date" id="f_date" required><div class="date-preview" id="datePreview_date"></div></div>
+        <div class="field"><label>วันที่ทำจ่าย</label><input type="date" id="f_paymentDate" required><div class="date-preview" id="datePreview_paymentDate"></div>
           <div class="field-hint">ทำจ่ายทุกวันศุกร์ ระบบเติมให้อัตโนมัติ ปรับเองได้</div>
         </div>
+        <div class="field"><label>วันที่ส่งของ (ถ้ามี)</label><input type="date" id="f_deliveryDate"><div class="date-preview" id="datePreview_deliveryDate"></div></div>
 
         <div class="field"><label>ซัพพลายเออร์</label><input type="text" id="f_supplier" required></div>
         <div class="field"><label>เงื่อนไขการชำระเงิน</label>
@@ -293,6 +302,7 @@
         <div class="field"><label>เลขที่ใบกำกับภาษี / ใบส่งของ</label><input type="text" id="f_deliveryDocNumber" placeholder="กรอกเมื่อได้รับของแล้ว"></div>
 
         <div class="field full"><label>หมายเหตุความเสี่ยง (ถ้ามี)</label><input type="text" id="f_riskNote" placeholder="เช่น ซัพพลายเออร์ส่งช้าบ่อยครั้ง"></div>
+        <div class="field full"><label>หมายเหตุเพิ่มเติม</label><input type="text" id="f_note" placeholder="บันทึกอะไรก็ได้เกี่ยวกับ PO นี้"></div>
 
         <div class="section-divider">ใบขอสั่งซื้อ (PR)</div>
         <div class="field"><div class="field-check"><input type="checkbox" id="f_prReceived"><label style="margin:0;">ได้รับ PR แล้ว</label></div></div>
@@ -350,6 +360,7 @@
     <h2>ส่งมอบสินค้าแล้ว</h2>
     <p class="form-sub">กรอกเลขที่ใบกำกับภาษี หรือ เลขที่ใบส่งของ สำหรับ PO นี้</p>
     <div class="field full"><label>เลขที่เอกสาร</label><input type="text" id="docPromptInput" placeholder="เช่น INV-2569-0456"></div>
+    <div class="field full"><label>วันที่ส่งของ</label><input type="date" id="docPromptDateInput"></div>
     <div class="form-footer">
       <button type="button" class="btn btn-ghost" id="docPromptCancelBtn">ยกเลิก</button>
       <button type="button" class="btn btn-primary" id="docPromptSaveBtn">บันทึกและเปลี่ยนสถานะ</button>
@@ -377,10 +388,27 @@ let isFormOpen = false;
 let sheetApiUrl = null;
 let lastSnapshot = '';
 let expandedIds = new Set();
+let renderedOrder = [];
+let draggedId = null;
 let formItemIds = [];
 let pendingStatusChange = null;
 
 function uid(){ return 'r_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8); }
+function thaiFullDate(dateStr){
+  if(!dateStr) return '';
+  try{
+    const d = new Date(dateStr + 'T00:00:00');
+    return d.toLocaleDateString('th-TH', { day:'2-digit', month:'long', year:'numeric' });
+  }catch(e){ return ''; }
+}
+function updateDatePreviews(){
+  ['date','paymentDate','deliveryDate'].forEach(key=>{
+    const input = document.getElementById('f_'+key);
+    const preview = document.getElementById('datePreview_'+key);
+    if(input && preview){ preview.textContent = input.value ? ('= ' + thaiFullDate(input.value) + ' (วัน/เดือน/ปี)') : ''; }
+  });
+}
+
 function itemUid(){ return 'i_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,6); }
 
 function toast(msg, type='success'){
@@ -503,6 +531,19 @@ function poTotals(po){
   const grandTotal = subtotal + vatAmount;
   return { subtotal, vatAmount, grandTotal, saving, vatRate };
 }
+function isOverdue(po, todayStr){
+  todayStr = todayStr || new Date().toISOString().slice(0,10);
+  if(!po.paymentDate) return false;
+  if(po.poStatus === 'ส่งมอบแล้ว' || po.poStatus === 'ยกเลิก') return false;
+  return po.paymentDate < todayStr;
+}
+function sortValue(r){
+  if(r.sortOrder !== undefined && r.sortOrder !== null && r.sortOrder !== ''){
+    const n = Number(r.sortOrder);
+    if(!isNaN(n)) return n;
+  }
+  return r.createdAt ? new Date(r.createdAt).getTime() : 0;
+}
 function poStatusColor(s){
   switch(s){
     case 'รอสั่งซื้อ': return 'var(--text-dim)';
@@ -546,12 +587,13 @@ function renderSiteTabs(){
 function renderKPIs(){
   const base = siteFiltered(records);
   const total = base.length;
-  let warnCount=0, critCount=0, outCount=0, totalSaving=0, grandSum=0;
+  const todayStr = new Date().toISOString().slice(0,10);
+  let warnCount=0, critCount=0, overdueCount=0, totalSaving=0, grandSum=0;
   base.forEach(po=>{
     const worst = poWorstStatus(po);
     if(worst==='warn') warnCount++;
     if(worst==='critical') critCount++;
-    if(worst==='out') outCount++;
+    if(isOverdue(po, todayStr)) overdueCount++;
     const t = poTotals(po);
     totalSaving += t.saving;
     grandSum += t.grandTotal;
@@ -559,7 +601,7 @@ function renderKPIs(){
   const kpis = [
     { label:'PO ทั้งหมด'+(activeSite==='all'?'':' · '+activeSite), value: fmtNum(total), sub:'รายการที่ติดตามอยู่', color:'var(--blue)' },
     { label:'ใกล้หมด / วิกฤต', value: fmtNum(warnCount+critCount), sub:`วิกฤต ${critCount} · ใกล้หมด ${warnCount}`, color:'var(--amber)' },
-    { label:'หมดสต็อกแล้ว', value: fmtNum(outCount), sub:'ต้องเร่งสั่งซื้อทันที', color:'var(--red)' },
+    { label:'เลยกำหนดจ่ายเงิน', value: fmtNum(overdueCount), sub:'ยังไม่ส่งมอบ/ยกเลิก แต่เลยวันจ่าย', color:'var(--red)' },
     { label:'ยอดซื้อรวม (รวม VAT)', value: '฿'+fmtNum(grandSum), sub:'ตามช่วงเวลาที่กรองอยู่', color:'var(--violet)' },
     { label:'ประหยัดได้สะสม', value: '฿'+fmtNum(totalSaving), sub:'เทียบราคาเดิมกับราคาที่จ่ายจริง', color:'var(--green)' },
   ];
@@ -587,7 +629,8 @@ function renderTable(){
     }
     return true;
   });
-  filtered.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+  filtered.sort((a,b)=> sortValue(b) - sortValue(a));
+  renderedOrder = filtered.map(p=>p.id);
 
   if(!sheetApiUrl){
     tbody.innerHTML = '';
@@ -606,6 +649,7 @@ function renderTable(){
   empty.style.display = 'none';
 
   let html = '';
+  const todayStr = new Date().toISOString().slice(0,10);
   filtered.forEach(po=>{
     const items = po.items || [];
     const worst = poWorstStatus(po);
@@ -615,17 +659,21 @@ function renderTable(){
     const warnCritCount = items.filter(it=>{ const s=computeItemStatus(it).status; return s==='warn'||s==='critical'||s==='out'; }).length;
 
     html += `
-    <tr class="main-row">
+    <tr class="main-row" data-po-id="${po.id}">
       <td data-label="PO / วันที่เปิด-จ่าย">
+        <span class="drag-handle" title="ลากเพื่อจัดเรียงใหม่">⠿</span>
         <div class="cell-po">${escapeHtml(po.poNumber || '-')}</div>
         <div class="cell-date"><b>เปิด</b> ${formatDate(po.date)}</div>
         <div class="cell-date"><b>จ่าย</b> ${formatDate(po.paymentDate)}</div>
+        ${po.deliveryDate ? `<div class="cell-date"><b>ส่งของ</b> ${formatDate(po.deliveryDate)}</div>` : ''}
+        ${isOverdue(po, todayStr) ? `<div class="overdue-badge">⏰ เลยกำหนดจ่าย</div>` : ''}
       </td>
       <td data-label="ซัพพลายเออร์ & เงื่อนไข">
         <div class="cell-supplier">${escapeHtml(po.supplier || '-')}</div>
         <span class="tag-site">${escapeHtml(po.site || '-')}</span>
         <span class="tag-terms">${escapeHtml(po.paymentTerms || '-')}</span>
         ${po.riskNote ? `<div class="cell-date" style="color:var(--amber);margin-top:6px;">⚠ ${escapeHtml(po.riskNote)}</div>` : ''}
+        ${po.note ? `<div class="note-line">📝 ${escapeHtml(po.note)}</div>` : ''}
       </td>
       <td data-label="PR">
         ${po.prReceived ? `<span class="pr-chip pr-yes">✓ ได้รับแล้ว (${fmtNum(po.prItemCount)} รายการ)</span>` : `<span class="pr-chip pr-no">ยังไม่ได้รับ PR</span>`}
@@ -690,6 +738,7 @@ function renderTable(){
     if(expandedIds.has(id)) expandedIds.delete(id); else expandedIds.add(id);
     renderTable();
   }));
+  attachDragHandlers();
   document.querySelectorAll('.po-status-select').forEach(el=>{
     el.addEventListener('change', (e)=>{
       const id = el.getAttribute('data-id');
@@ -699,6 +748,7 @@ function renderTable(){
       if(newVal === 'ส่งมอบแล้ว'){
         pendingStatusChange = { id, newVal, selectEl: el, prevVal: rec.poStatus };
         document.getElementById('docPromptInput').value = rec.deliveryDocNumber || '';
+        document.getElementById('docPromptDateInput').value = rec.deliveryDate || new Date().toISOString().slice(0,10);
         document.getElementById('docPromptOverlay').classList.remove('hidden');
       } else {
         rec.poStatus = newVal;
@@ -712,6 +762,54 @@ function renderTable(){
 function renderAll(){ renderSiteTabs(); renderKPIs(); renderFilterChips(); renderTable(); }
 
 /* ---------- Item rows in form ---------- */
+function attachDragHandlers(){
+  document.querySelectorAll('tr.main-row').forEach(row=>{
+    row.addEventListener('dragstart', ()=>{ draggedId = row.getAttribute('data-po-id'); row.classList.add('dragging'); });
+    row.addEventListener('dragend', ()=>{
+      row.classList.remove('dragging');
+      document.querySelectorAll('.drag-over').forEach(r=>r.classList.remove('drag-over'));
+    });
+    row.addEventListener('dragover', (e)=>{ e.preventDefault(); row.classList.add('drag-over'); });
+    row.addEventListener('dragleave', ()=> row.classList.remove('drag-over'));
+    row.addEventListener('drop', (e)=>{
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      const targetId = row.getAttribute('data-po-id');
+      if(!draggedId || targetId === draggedId) return;
+      reorderRecords(draggedId, targetId);
+    });
+  });
+  document.querySelectorAll('.drag-handle').forEach(handle=>{
+    handle.closest('tr.main-row').setAttribute('draggable', 'true');
+  });
+}
+async function reorderRecords(fromId, toId){
+  const order = renderedOrder.slice();
+  const fromIdx = order.indexOf(fromId);
+  if(fromIdx < 0) return;
+  order.splice(fromIdx, 1);
+  const toIdx = order.indexOf(toId);
+  if(toIdx < 0) return;
+  order.splice(toIdx, 0, fromId);
+
+  const newIndex = order.indexOf(fromId);
+  const prevId = order[newIndex - 1];
+  const nextId = order[newIndex + 1];
+  const prevRec = prevId ? records.find(r=>r.id===prevId) : null;
+  const nextRec = nextId ? records.find(r=>r.id===nextId) : null;
+  const draggedRec = records.find(r=>r.id===fromId);
+  if(!draggedRec) return;
+  let newOrder;
+  if(prevRec && nextRec) newOrder = (sortValue(prevRec) + sortValue(nextRec)) / 2;
+  else if(prevRec) newOrder = sortValue(prevRec) - 1;
+  else if(nextRec) newOrder = sortValue(nextRec) + 1;
+  else newOrder = Date.now();
+  draggedRec.sortOrder = newOrder;
+  renderTable();
+  const ok = await pushRecords();
+  if(ok){ lastSnapshot = JSON.stringify(records); toast('จัดเรียงลำดับ PO แล้ว'); }
+}
+
 function itemRowTemplate(item){
   const id = item.localId;
   return `
@@ -788,12 +886,14 @@ function openForm(id=null){
     document.getElementById('f_site').value = r.site || 'สำนักงานใหญ่';
     document.getElementById('f_date').value = r.date || '';
     document.getElementById('f_paymentDate').value = r.paymentDate || '';
+    document.getElementById('f_deliveryDate').value = r.deliveryDate || '';
     document.getElementById('f_poNumber').value = r.poNumber || '';
     document.getElementById('f_supplier').value = r.supplier || '';
     document.getElementById('f_paymentTerms').value = r.paymentTerms || 'เงินสด';
     document.getElementById('f_poStatus').value = r.poStatus || 'รอสั่งซื้อ';
     document.getElementById('f_deliveryDocNumber').value = r.deliveryDocNumber || '';
     document.getElementById('f_riskNote').value = r.riskNote || '';
+    document.getElementById('f_note').value = r.note || '';
     document.getElementById('f_prReceived').checked = !!r.prReceived;
     document.getElementById('f_prItemCount').value = r.prItemCount ?? '';
     document.getElementById('f_vatRate').value = (r.vatRate !== undefined && r.vatRate !== null) ? r.vatRate : 7;
@@ -812,6 +912,7 @@ function openForm(id=null){
     renderItemsForm([{ localId: itemUid(), description:'', qty:'', unit:'', unitPrice:'', remainingStock:'', usageRate:'', oldPrice:'', newPrice:'' }]);
   }
   document.getElementById('formOverlay').classList.remove('hidden');
+  updateDatePreviews();
 }
 function closeForm(){ isFormOpen = false; document.getElementById('formOverlay').classList.add('hidden'); editingId = null; }
 
@@ -839,12 +940,14 @@ async function handleSubmit(e){
     site: document.getElementById('f_site').value,
     date: document.getElementById('f_date').value,
     paymentDate: document.getElementById('f_paymentDate').value,
+    deliveryDate: document.getElementById('f_deliveryDate').value,
     poNumber: document.getElementById('f_poNumber').value.trim(),
     supplier: document.getElementById('f_supplier').value.trim(),
     paymentTerms: document.getElementById('f_paymentTerms').value,
     poStatus: document.getElementById('f_poStatus').value,
     deliveryDocNumber: document.getElementById('f_deliveryDocNumber').value.trim(),
     riskNote: document.getElementById('f_riskNote').value.trim(),
+    note: document.getElementById('f_note').value.trim(),
     prReceived: document.getElementById('f_prReceived').checked,
     prItemCount: document.getElementById('f_prItemCount').value === '' ? null : parseInt(document.getElementById('f_prItemCount').value),
     vatRate: parseFloat(document.getElementById('f_vatRate').value) || 0,
@@ -859,6 +962,7 @@ async function handleSubmit(e){
   } else {
     data.id = uid();
     data.createdAt = new Date().toISOString();
+    data.sortOrder = Date.now();
     records.push(data);
   }
   const ok = await pushRecords();
@@ -883,10 +987,12 @@ async function confirmDocPrompt(){
   if(!pendingStatusChange) return;
   const { id, newVal } = pendingStatusChange;
   const docNum = document.getElementById('docPromptInput').value.trim();
+  const delDate = document.getElementById('docPromptDateInput').value;
   const rec = records.find(x=>x.id===id);
   if(rec){
     rec.poStatus = newVal;
     rec.deliveryDocNumber = docNum;
+    rec.deliveryDate = delDate;
     rec.updatedAt = new Date().toISOString();
     const ok = await pushRecords();
     if(ok){ lastSnapshot = JSON.stringify(records); toast('บันทึกสถานะและเลขที่เอกสารแล้ว'); }
@@ -931,9 +1037,11 @@ function printPOReport(id){
     <div><b>เงื่อนไขการชำระเงิน</b>${escapeHtml(po.paymentTerms||'-')}</div>
     <div><b>วันที่เปิด PO</b>${formatDate(po.date)}</div>
     <div><b>วันที่ทำจ่าย</b>${formatDate(po.paymentDate)}</div>
+    <div><b>วันที่ส่งของ</b>${formatDate(po.deliveryDate)}</div>
     <div><b>สถานะ PO</b>${escapeHtml(po.poStatus||'-')}</div>
     <div><b>เลขที่ใบกำกับภาษี/ใบส่งของ</b>${escapeHtml(po.deliveryDocNumber||'-')}</div>
     <div><b>PR</b>${po.prReceived ? 'ได้รับแล้ว ('+fmtNum(po.prItemCount)+' รายการ)' : 'ยังไม่ได้รับ'}</div>
+    <div><b>หมายเหตุ</b>${escapeHtml(po.note||'-')}</div>
   </div>
   <table><thead><tr><th>#</th><th>รายละเอียดสินค้า</th><th style="text-align:right;">จำนวน</th><th style="text-align:right;">ราคา/หน่วย</th><th style="text-align:right;">รวม</th></tr></thead><tbody>${itemsRows}</tbody></table>
   <div class="totals">
@@ -952,11 +1060,11 @@ function printPOReport(id){
 /* ---------- CSV export ---------- */
 function exportCSV(){
   const base = siteFiltered(records);
-  const rows = [['หน่วยงาน','เลขที่ PO','วันที่เปิด','วันที่จ่าย','ซัพพลายเออร์','เงื่อนไขชำระ','สถานะ PO','เลขที่เอกสารส่งของ','PR ได้รับแล้ว','PR จำนวนรายการ','สินค้า','จำนวน','หน่วย','ราคา/หน่วย','รวม','VAT%','ยอดสุทธิ PO']];
+  const rows = [['หน่วยงาน','เลขที่ PO','วันที่เปิด','วันที่จ่าย','วันที่ส่งของ','ซัพพลายเออร์','เงื่อนไขชำระ','สถานะ PO','เลขที่เอกสารส่งของ','PR ได้รับแล้ว','หมายเหตุ','สินค้า','จำนวน','หน่วย','ราคา/หน่วย','รวม','VAT%','ยอดสุทธิ PO']];
   base.forEach(po=>{
     const t = poTotals(po);
     (po.items||[]).forEach(it=>{
-      rows.push([po.site, po.poNumber, po.date, po.paymentDate, po.supplier, po.paymentTerms, po.poStatus, po.deliveryDocNumber||'', po.prReceived?'ใช่':'ไม่','', it.description, it.qty, it.unit, it.unitPrice, (Number(it.qty)||0)*(Number(it.unitPrice)||0), t.vatRate, t.grandTotal]);
+      rows.push([po.site, po.poNumber, po.date, po.paymentDate, po.deliveryDate||'', po.supplier, po.paymentTerms, po.poStatus, po.deliveryDocNumber||'', po.prReceived?'ใช่':'ไม่', po.note||'', it.description, it.qty, it.unit, it.unitPrice, (Number(it.qty)||0)*(Number(it.unitPrice)||0), t.vatRate, t.grandTotal]);
     });
   });
   const csv = rows.map(r => r.map(c => `"${String(c===undefined||c===null?'':c).replace(/"/g,'""')}"`).join(',')).join('\n');
@@ -1021,7 +1129,9 @@ async function init(){
   document.getElementById('docPromptSaveBtn').addEventListener('click', confirmDocPrompt);
   document.getElementById('docPromptOverlay').addEventListener('click', (e)=>{ if(e.target.id === 'docPromptOverlay') closeDocPrompt(); });
   document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
-  document.getElementById('f_date').addEventListener('change', (e)=>{ if(!editingId) document.getElementById('f_paymentDate').value = nextFriday(e.target.value); });
+  document.getElementById('f_date').addEventListener('change', (e)=>{ if(!editingId) document.getElementById('f_paymentDate').value = nextFriday(e.target.value); updateDatePreviews(); });
+  document.getElementById('f_paymentDate').addEventListener('change', updateDatePreviews);
+  document.getElementById('f_deliveryDate').addEventListener('change', updateDatePreviews);
   document.getElementById('leadTimeInput').addEventListener('change', async (e)=>{
     const val = parseInt(e.target.value) || 7;
     settings.leadTimeDays = val;
