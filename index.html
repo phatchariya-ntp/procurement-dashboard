@@ -123,6 +123,12 @@
   .overdue-badge{display:inline-block;margin-top:5px;font-size:10.5px;font-weight:700;color:var(--red);background:var(--red-soft);padding:2px 8px;border-radius:6px;}
   .date-preview{font-size:11px;color:var(--text-dim);margin-top:3px;}
   .note-line{font-size:11.5px;color:var(--text-muted);font-style:italic;margin-top:5px;}
+  .checkbox-inline{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);margin-top:4px;}
+  .checkbox-inline input{width:15px;height:15px;}
+  .price-mode-row{display:flex;gap:16px;align-items:center;background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:12.5px;color:var(--text-muted);}
+  .price-mode-row label{display:flex;align-items:center;gap:6px;cursor:pointer;}
+  .form-close-x{position:absolute;top:18px;right:18px;width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:var(--text-muted);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;}
+  .form-close-x:hover{background:var(--panel-3);color:var(--text);}
 
   tr.items-detail-row td{background:var(--panel-2);padding:0;}
   .items-detail-inner{padding:14px 20px;}
@@ -136,7 +142,7 @@
 
   .overlay{position:fixed;inset:0;background:rgba(20,26,40,0.45);backdrop-filter:blur(2px);display:flex;align-items:flex-start;justify-content:center;padding:30px 16px;z-index:50;overflow-y:auto;}
   .overlay.hidden{display:none;}
-  .form-panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;width:100%;max-width:820px;padding:24px;margin-top:20px;box-shadow:0 20px 50px rgba(16,24,40,0.18);}
+  .form-panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;width:100%;max-width:820px;padding:24px;margin-top:20px;box-shadow:0 20px 50px rgba(16,24,40,0.18);position:relative;}
   .form-panel.small{max-width:460px;}
   .form-panel h2{font-family:'Space Grotesk',sans-serif;margin:0 0 4px;font-size:19px;}
   .form-panel .form-sub{color:var(--text-muted);font-size:12.5px;margin-bottom:18px;}
@@ -256,6 +262,7 @@
 
 <div class="overlay hidden" id="formOverlay">
   <div class="form-panel">
+    <button type="button" class="form-close-x" id="formCloseX" title="ปิด">×</button>
     <h2 id="formTitle">เพิ่ม PO ใหม่</h2>
     <p class="form-sub">กรอกข้อมูล PO และรายการสินค้า ระบบจะคำนวณ VAT ยอดรวม และสถานะสต็อกให้อัตโนมัติ</p>
     <form id="poForm">
@@ -319,13 +326,22 @@
             </select>
           </span>
         </div>
+        <div class="field full">
+          <div class="price-mode-row">
+            <span>ราคาที่กรอกในแต่ละรายการ:</span>
+            <label><input type="radio" name="f_priceMode" value="exclusive" checked> ยังไม่รวม VAT</label>
+            <label><input type="radio" name="f_priceMode" value="inclusive"> รวม VAT แล้ว</label>
+          </div>
+        </div>
         <div class="field full" id="itemsContainer"></div>
         <div class="field full"><button type="button" class="add-item-btn" id="addItemBtn">+ เพิ่มรายการสินค้า</button></div>
         <div class="field full">
           <div class="totals-box">
             <div class="totals-row"><span>ยอดรวมก่อน VAT</span><span id="sumSubtotal" class="mono">฿0</span></div>
             <div class="totals-row"><span id="sumVatLabel">VAT (7%)</span><span id="sumVat" class="mono">฿0</span></div>
-            <div class="totals-row grand"><span>ยอดรวมสุทธิ</span><span id="sumGrand">฿0</span></div>
+            <div class="totals-row"><span>ยอดรวมสุทธิ (รวม VAT)</span><span id="sumGrandSub" class="mono">฿0</span></div>
+            <div class="totals-row" id="sumWhtRow" style="color:var(--red);"><span>หัก ณ ที่จ่าย 3%</span><span id="sumWht" class="mono">-฿0</span></div>
+            <div class="totals-row grand"><span>ยอดที่ต้องจ่ายจริง</span><span id="sumGrand">฿0</span></div>
           </div>
         </div>
 
@@ -518,18 +534,23 @@ function poWorstStatus(po){
 }
 function poTotals(po){
   const items = po.items || [];
-  let subtotal = 0, saving = 0;
+  const vatRate = Number(po.vatRate) || 0;
+  const inclusive = po.priceMode === 'inclusive';
+  let subtotal = 0, saving = 0, whtAmount = 0;
   items.forEach(it=>{
     const qty = Number(it.qty) || 0;
-    const price = Number(it.unitPrice) || 0;
-    subtotal += qty * price;
+    const priceEntered = Number(it.unitPrice) || 0;
+    const preVatPrice = (inclusive && vatRate > 0) ? (priceEntered / (1 + vatRate/100)) : priceEntered;
+    const lineSubtotal = qty * preVatPrice;
+    subtotal += lineSubtotal;
+    if(it.wht){ whtAmount += lineSubtotal * 0.03; }
     const oldP = Number(it.oldPrice);
-    if(oldP > 0){ saving += (oldP - price) * qty; }
+    if(oldP > 0){ saving += (oldP - preVatPrice) * qty; }
   });
-  const vatRate = Number(po.vatRate) || 0;
   const vatAmount = subtotal * vatRate / 100;
   const grandTotal = subtotal + vatAmount;
-  return { subtotal, vatAmount, grandTotal, saving, vatRate };
+  const netPayable = grandTotal - whtAmount;
+  return { subtotal, vatAmount, grandTotal, saving, vatRate, whtAmount, netPayable, inclusive };
 }
 function isOverdue(po, todayStr){
   todayStr = todayStr || new Date().toISOString().slice(0,10);
@@ -596,7 +617,7 @@ function renderKPIs(){
     if(isOverdue(po, todayStr)) overdueCount++;
     const t = poTotals(po);
     totalSaving += t.saving;
-    grandSum += t.grandTotal;
+    grandSum += t.netPayable;
   });
   const kpis = [
     { label:'PO ทั้งหมด'+(activeSite==='all'?'':' · '+activeSite), value: fmtNum(total), sub:'รายการที่ติดตามอยู่', color:'var(--blue)' },
@@ -694,7 +715,8 @@ function renderTable(){
       <td data-label="ยอดเงิน (รวม VAT)">
         <div class="money-line">ก่อน VAT ฿${fmtNum(t.subtotal,2)}</div>
         <div class="money-line">VAT ${fmtNum(t.vatRate)}% ฿${fmtNum(t.vatAmount,2)}</div>
-        <div class="money-total">฿${fmtNum(t.grandTotal,2)}</div>
+        ${t.whtAmount > 0 ? `<div class="money-line" style="color:var(--red);">หัก ณ ที่จ่าย -฿${fmtNum(t.whtAmount,2)}</div>` : ''}
+        <div class="money-total">฿${fmtNum(t.netPayable,2)}</div>
         ${t.saving > 0 ? `<div class="money-save">ประหยัด ฿${fmtNum(t.saving)}</div>` : ''}
       </td>
       <td data-label="อัปเดตล่าสุด">
@@ -819,7 +841,7 @@ function itemRowTemplate(item){
       <div><label>รายละเอียดสินค้า</label><input type="text" class="it-desc" value="${escapeHtml(item.description||'')}" placeholder="เช่น กล่องบรรจุภัณฑ์ A4"></div>
       <div><label>จำนวน</label><input type="number" class="it-qty" min="0" step="any" value="${item.qty ?? ''}"></div>
       <div><label>หน่วย</label><input type="text" class="it-unit" value="${escapeHtml(item.unit||'')}" placeholder="ลัง/ชิ้น"></div>
-      <div><label>ราคา/หน่วย (ก่อน VAT)</label><input type="number" class="it-price" min="0" step="any" value="${item.unitPrice ?? ''}"></div>
+      <div><label>ราคา/หน่วย</label><input type="number" class="it-price" min="0" step="any" value="${item.unitPrice ?? ''}"></div>
     </div>
     <div class="item-row-grid2">
       <div><label>สต็อกคงเหลือ</label><input type="number" class="it-stock" min="0" step="any" value="${item.remainingStock ?? ''}"></div>
@@ -827,6 +849,7 @@ function itemRowTemplate(item){
       <div><label>ราคาเดิม (เทียบประหยัด)</label><input type="number" class="it-oldprice" min="0" step="any" value="${item.oldPrice ?? ''}"></div>
       <div><label>ราคาที่ตกลงใหม่</label><input type="number" class="it-newprice" min="0" step="any" value="${item.newPrice ?? ''}"></div>
     </div>
+    <label class="checkbox-inline"><input type="checkbox" class="it-wht" ${item.wht ? 'checked' : ''}> มีหัก ณ ที่จ่าย 3% สำหรับรายการนี้</label>
   </div>`;
 }
 function renderItemsForm(items){
@@ -841,7 +864,6 @@ function renderItemsForm(items){
       recalcFormTotals();
     });
   });
-  document.getElementById('itemsContainer').querySelectorAll('.it-qty, .it-price').forEach(inp=> inp.addEventListener('input', recalcFormTotals));
   recalcFormTotals();
 }
 function addFormItem(prefill){
@@ -855,22 +877,31 @@ function addFormItem(prefill){
     newBtn.closest('.item-row').remove();
     recalcFormTotals();
   });
-  document.querySelector(`.item-row[data-item-id="${item.localId}"]`).querySelectorAll('.it-qty, .it-price').forEach(inp=> inp.addEventListener('input', recalcFormTotals));
+  document.querySelector(`.item-row[data-item-id="${item.localId}"]`);
 }
 function recalcFormTotals(){
-  let subtotal = 0;
+  const vatRate = parseFloat(document.getElementById('f_vatRate').value) || 0;
+  const priceMode = (document.querySelector('input[name="f_priceMode"]:checked') || {}).value || 'exclusive';
+  const inclusive = priceMode === 'inclusive';
+  let subtotal = 0, whtAmount = 0;
   document.querySelectorAll('#itemsContainer .item-row').forEach(row=>{
     const qty = parseFloat(row.querySelector('.it-qty').value) || 0;
-    const price = parseFloat(row.querySelector('.it-price').value) || 0;
-    subtotal += qty * price;
+    const priceEntered = parseFloat(row.querySelector('.it-price').value) || 0;
+    const preVatPrice = (inclusive && vatRate > 0) ? (priceEntered / (1 + vatRate/100)) : priceEntered;
+    const lineSubtotal = qty * preVatPrice;
+    subtotal += lineSubtotal;
+    if(row.querySelector('.it-wht').checked){ whtAmount += lineSubtotal * 0.03; }
   });
-  const vatRate = parseFloat(document.getElementById('f_vatRate').value) || 0;
   const vatAmount = subtotal * vatRate / 100;
-  const grand = subtotal + vatAmount;
+  const grandSub = subtotal + vatAmount;
+  const netPayable = grandSub - whtAmount;
   document.getElementById('sumSubtotal').textContent = '฿' + fmtNum(subtotal,2);
   document.getElementById('sumVatLabel').textContent = `VAT (${vatRate}%)`;
   document.getElementById('sumVat').textContent = '฿' + fmtNum(vatAmount,2);
-  document.getElementById('sumGrand').textContent = '฿' + fmtNum(grand,2);
+  document.getElementById('sumGrandSub').textContent = '฿' + fmtNum(grandSub,2);
+  document.getElementById('sumWhtRow').style.display = whtAmount > 0 ? 'flex' : 'none';
+  document.getElementById('sumWht').textContent = '-฿' + fmtNum(whtAmount,2);
+  document.getElementById('sumGrand').textContent = '฿' + fmtNum(netPayable,2);
 }
 
 /* ---------- Form open/close/submit ---------- */
@@ -897,6 +928,8 @@ function openForm(id=null){
     document.getElementById('f_prReceived').checked = !!r.prReceived;
     document.getElementById('f_prItemCount').value = r.prItemCount ?? '';
     document.getElementById('f_vatRate').value = (r.vatRate !== undefined && r.vatRate !== null) ? r.vatRate : 7;
+    const pmRadio = document.querySelector(`input[name="f_priceMode"][value="${r.priceMode === 'inclusive' ? 'inclusive' : 'exclusive'}"]`);
+    if(pmRadio) pmRadio.checked = true;
     document.getElementById('f_updatedBy').value = r.updatedBy || '';
     const items = (r.items && r.items.length ? r.items : [{}]).map(it => ({...it, localId: itemUid()}));
     renderItemsForm(items);
@@ -932,6 +965,7 @@ async function handleSubmit(e){
       usageRate: parseFloat(row.querySelector('.it-usage').value) || 0,
       oldPrice: row.querySelector('.it-oldprice').value === '' ? null : parseFloat(row.querySelector('.it-oldprice').value),
       newPrice: row.querySelector('.it-newprice').value === '' ? null : parseFloat(row.querySelector('.it-newprice').value),
+      wht: row.querySelector('.it-wht').checked,
     });
   });
   if(items.length === 0){ toast('กรุณากรอกรายละเอียดสินค้าอย่างน้อย 1 รายการ', 'error'); return; }
@@ -951,6 +985,7 @@ async function handleSubmit(e){
     prReceived: document.getElementById('f_prReceived').checked,
     prItemCount: document.getElementById('f_prItemCount').value === '' ? null : parseInt(document.getElementById('f_prItemCount').value),
     vatRate: parseFloat(document.getElementById('f_vatRate').value) || 0,
+    priceMode: (document.querySelector('input[name="f_priceMode"]:checked') || {}).value || 'exclusive',
     items: items,
     updatedBy: document.getElementById('f_updatedBy').value.trim(),
     updatedAt: new Date().toISOString(),
@@ -1047,7 +1082,8 @@ function printPOReport(id){
   <div class="totals">
     <div><span>ยอดรวมก่อน VAT</span><span>฿${fmtNum(t.subtotal,2)}</span></div>
     <div><span>VAT ${fmtNum(t.vatRate)}%</span><span>฿${fmtNum(t.vatAmount,2)}</span></div>
-    <div class="grand"><span>ยอดรวมสุทธิ</span><span>฿${fmtNum(t.grandTotal,2)}</span></div>
+    ${t.whtAmount > 0 ? `<div><span>หัก ณ ที่จ่าย 3%</span><span>-฿${fmtNum(t.whtAmount,2)}</span></div>` : ''}
+    <div class="grand"><span>ยอดที่ต้องจ่ายจริง</span><span>฿${fmtNum(t.netPayable,2)}</span></div>
   </div>
   <script>window.onload=()=>{window.print();};<\/script>
   </body></html>`;
@@ -1060,11 +1096,14 @@ function printPOReport(id){
 /* ---------- CSV export ---------- */
 function exportCSV(){
   const base = siteFiltered(records);
-  const rows = [['หน่วยงาน','เลขที่ PO','วันที่เปิด','วันที่จ่าย','วันที่ส่งของ','ซัพพลายเออร์','เงื่อนไขชำระ','สถานะ PO','เลขที่เอกสารส่งของ','PR ได้รับแล้ว','หมายเหตุ','สินค้า','จำนวน','หน่วย','ราคา/หน่วย','รวม','VAT%','ยอดสุทธิ PO']];
+  const rows = [['หน่วยงาน','เลขที่ PO','วันที่เปิด','วันที่จ่าย','วันที่ส่งของ','ซัพพลายเออร์','เงื่อนไขชำระ','สถานะ PO','เลขที่เอกสารส่งของ','PR ได้รับแล้ว','หมายเหตุ','สินค้า','จำนวน','หน่วย','ราคา/หน่วย','ราคารวม VAT แล้วหรือไม่','หัก ณ ที่จ่าย 3%','รวม (ก่อน VAT)','VAT%','หัก ณ ที่จ่ายรวม','ยอดที่ต้องจ่ายจริง PO']];
   base.forEach(po=>{
     const t = poTotals(po);
     (po.items||[]).forEach(it=>{
-      rows.push([po.site, po.poNumber, po.date, po.paymentDate, po.deliveryDate||'', po.supplier, po.paymentTerms, po.poStatus, po.deliveryDocNumber||'', po.prReceived?'ใช่':'ไม่', po.note||'', it.description, it.qty, it.unit, it.unitPrice, (Number(it.qty)||0)*(Number(it.unitPrice)||0), t.vatRate, t.grandTotal]);
+      const qty = Number(it.qty)||0;
+      const priceEntered = Number(it.unitPrice)||0;
+      const preVat = (t.inclusive && t.vatRate>0) ? (priceEntered/(1+t.vatRate/100)) : priceEntered;
+      rows.push([po.site, po.poNumber, po.date, po.paymentDate, po.deliveryDate||'', po.supplier, po.paymentTerms, po.poStatus, po.deliveryDocNumber||'', po.prReceived?'ใช่':'ไม่', po.note||'', it.description, qty, it.unit, priceEntered, t.inclusive?'รวม VAT':'ไม่รวม VAT', it.wht?'ใช่':'ไม่', qty*preVat, t.vatRate, fmtNum(t.whtAmount,2), t.netPayable]);
     });
   });
   const csv = rows.map(r => r.map(c => `"${String(c===undefined||c===null?'':c).replace(/"/g,'""')}"`).join(',')).join('\n');
@@ -1114,10 +1153,13 @@ async function refreshFromSheet(showErrors){
 async function init(){
   document.getElementById('addBtn').addEventListener('click', ()=> openForm());
   document.getElementById('cancelBtn').addEventListener('click', closeForm);
-  document.getElementById('formOverlay').addEventListener('click', (e)=>{ if(e.target.id === 'formOverlay') closeForm(); });
+  document.getElementById('formCloseX').addEventListener('click', closeForm);
   document.getElementById('poForm').addEventListener('submit', handleSubmit);
   document.getElementById('addItemBtn').addEventListener('click', ()=> addFormItem());
   document.getElementById('f_vatRate').addEventListener('change', recalcFormTotals);
+  document.querySelectorAll('input[name="f_priceMode"]').forEach(r=> r.addEventListener('change', recalcFormTotals));
+  document.getElementById('itemsContainer').addEventListener('input', (e)=>{ if(e.target.matches('.it-qty, .it-price')) recalcFormTotals(); });
+  document.getElementById('itemsContainer').addEventListener('change', (e)=>{ if(e.target.matches('.it-wht')) recalcFormTotals(); });
   document.getElementById('searchInput').addEventListener('input', (e)=>{ searchTerm = e.target.value; renderTable(); });
   document.getElementById('dateFrom').addEventListener('change', (e)=>{ dateFrom = e.target.value; renderAll(); });
   document.getElementById('dateTo').addEventListener('change', (e)=>{ dateTo = e.target.value; renderAll(); });
