@@ -41,6 +41,34 @@
   .connect-badge.connected{color:var(--green);border-color:var(--green);background:var(--green-soft);}
   .connect-badge.disconnected{color:var(--red);border-color:var(--red);background:var(--red-soft);}
 
+  .view-switch{display:flex;gap:8px;margin-bottom:18px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:6px;box-shadow:var(--shadow);width:fit-content;}
+  .view-tab{padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer;transition:all .15s;}
+  .view-tab.active{background:var(--blue);color:#fff;}
+  .view-tab:not(.active):hover{background:var(--panel-2);}
+
+  .pay-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;font-size:11.5px;font-weight:600;}
+  .pay-yes{background:var(--green-soft);color:var(--green);}
+  .pay-no{background:var(--red-soft);color:var(--red);}
+  .pay-toggle-btn{border:none;background:none;cursor:pointer;padding:0;}
+  .actual-date-input{font-size:12px;border:1px solid var(--border);border-radius:8px;padding:5px 8px;background:var(--panel-2);color:var(--text);}
+
+  .calendar-header{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+  .calendar-title{font-size:17px;font-weight:700;}
+  .calendar-legend{display:flex;gap:16px;font-size:11.5px;color:var(--text-muted);margin-bottom:12px;}
+  .legend-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;}
+  .calendar-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+  .cal-weekday{text-align:center;font-size:11px;color:var(--text-dim);font-weight:600;padding:4px 0;text-transform:uppercase;}
+  .cal-day{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px;min-height:100px;cursor:pointer;transition:all .15s;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:4px;}
+  .cal-day:hover{border-color:var(--blue);}
+  .cal-day.empty{background:transparent;border:none;box-shadow:none;cursor:default;}
+  .cal-day.today{border-color:var(--amber);border-width:2px;}
+  .cal-day-num{font-size:12.5px;font-weight:700;color:var(--text-muted);}
+  .cal-day.today .cal-day-num{color:var(--amber);}
+  .cal-tag{font-size:9.5px;padding:2px 6px;border-radius:5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cal-tag.due{background:var(--amber-soft);color:var(--amber);}
+  .cal-tag.delivery{background:var(--green-soft);color:var(--green);}
+  .cal-tag.note{background:var(--blue-soft);color:var(--blue);}
+
   .site-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;}
   .site-tab{padding:10px 18px;border-radius:999px;border:1px solid var(--border);background:var(--panel);color:var(--text-muted);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;box-shadow:var(--shadow);}
   .site-tab.active{background:var(--blue);border-color:var(--blue);color:#fff;}
@@ -220,6 +248,13 @@
     </div>
   </div>
 
+  <div class="view-switch" id="viewSwitch">
+    <div class="view-tab active" data-view="polist">📋 รายการ PO</div>
+    <div class="view-tab" data-view="payments">💳 การจ่ายเงิน</div>
+    <div class="view-tab" data-view="calendar">📅 ปฏิทิน</div>
+  </div>
+
+  <div id="viewPOList">
   <div class="site-tabs" id="siteTabs"></div>
   <div class="kpis" id="kpiRow"></div>
 
@@ -257,6 +292,51 @@
       <h3 id="emptyTitle">ยังไม่มีรายการ PO</h3>
       <p id="emptySub">กดปุ่ม "เพิ่ม PO" เพื่อเริ่มบันทึกข้อมูล</p>
     </div>
+  </div>
+  </div>
+
+  <div id="viewPayments" style="display:none;">
+    <div class="kpis" id="paymentKpiRow"></div>
+    <div class="toolbar">
+      <div class="search-box">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="#8B95AC" stroke-width="2"/><path d="M21 21L16.65 16.65" stroke="#8B95AC" stroke-width="2" stroke-linecap="round"/></svg>
+        <input id="paymentSearchInput" type="text" placeholder="ค้นหา เลขที่ PO / ซัพพลายเออร์...">
+      </div>
+      <div class="chips" id="paymentFilterChips"></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>เลขที่ PO / ซัพพลายเออร์</th>
+            <th>รายการสินค้า</th>
+            <th>วันที่ครบกำหนดจ่าย</th>
+            <th>ยอดที่ต้องจ่ายจริง</th>
+            <th>จ่ายแล้ว?</th>
+            <th>วันที่จ่ายจริง</th>
+          </tr>
+        </thead>
+        <tbody id="paymentTableBody"></tbody>
+      </table>
+      <div id="paymentEmptyState" class="empty-state" style="display:none;">
+        <h3>ยังไม่มี PO ให้ติดตามการจ่ายเงิน</h3>
+      </div>
+    </div>
+  </div>
+
+  <div id="viewCalendar" style="display:none;">
+    <div class="calendar-header">
+      <button class="btn btn-ghost btn-sm" id="calPrevBtn">‹ เดือนก่อน</button>
+      <div class="calendar-title display" id="calTitle">-</div>
+      <button class="btn btn-ghost btn-sm" id="calNextBtn">เดือนถัดไป ›</button>
+      <button class="btn btn-ghost btn-sm" id="calTodayBtn" style="margin-left:auto;">วันนี้</button>
+    </div>
+    <div class="calendar-legend">
+      <span><i class="legend-dot" style="background:var(--amber);"></i> วันครบกำหนดจ่าย</span>
+      <span><i class="legend-dot" style="background:var(--green);"></i> วันส่งของ</span>
+      <span><i class="legend-dot" style="background:var(--blue);"></i> บันทึกข้อความ</span>
+    </div>
+    <div class="calendar-grid" id="calendarGrid"></div>
   </div>
 </div>
 
@@ -384,6 +464,19 @@
   </div>
 </div>
 
+<div class="overlay hidden" id="calNoteOverlay">
+  <div class="form-panel small">
+    <h2 id="calNoteTitle">บันทึกข้อความ</h2>
+    <p class="form-sub" id="calNoteSub"></p>
+    <div class="field full"><label>ข้อความ</label><textarea id="calNoteInput" rows="4" placeholder="พิมพ์ข้อความที่ต้องการบันทึกในวันนี้"></textarea></div>
+    <div id="calNoteExisting"></div>
+    <div class="form-footer">
+      <button type="button" class="btn btn-ghost" id="calNoteCancelBtn">ปิด</button>
+      <button type="button" class="btn btn-primary" id="calNoteSaveBtn">บันทึกข้อความ</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast-wrap" id="toastWrap"></div>
 
 <script>
@@ -408,6 +501,13 @@ let renderedOrder = [];
 let draggedId = null;
 let formItemIds = [];
 let pendingStatusChange = null;
+let currentView = 'polist';
+let calendarNotes = [];
+let calCursor = new Date();
+let calSelectedDate = null;
+let paymentSearchTerm = '';
+let paymentFilter = 'all';
+let poNumberManuallyEdited = false;
 
 function uid(){ return 'r_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8); }
 function thaiFullDate(dateStr){
@@ -436,6 +536,22 @@ function toast(msg, type='success'){
   setTimeout(()=> el.remove(), 3400);
 }
 
+function generateNextPONumber(dateStr){
+  const d = dateStr ? new Date(dateStr + 'T00:00:00') : new Date();
+  const buddhistYear = d.getFullYear() + 543;
+  const yy = String(buddhistYear).slice(-2);
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const prefix = 'PO' + yy + mm;
+  let maxSeq = 0;
+  records.forEach(r=>{
+    if(r.poNumber && r.poNumber.startsWith(prefix)){
+      const suffix = r.poNumber.slice(prefix.length);
+      const n = parseInt(suffix, 10);
+      if(!isNaN(n) && n > maxSeq) maxSeq = n;
+    }
+  });
+  return prefix + String(maxSeq+1).padStart(3,'0');
+}
 function nextFriday(dateStr){
   if(!dateStr) return '';
   const d = new Date(dateStr + 'T00:00:00');
@@ -781,7 +897,161 @@ function renderTable(){
   });
 }
 
-function renderAll(){ renderSiteTabs(); renderKPIs(); renderFilterChips(); renderTable(); }
+function renderAll(){
+  renderSiteTabs(); renderKPIs(); renderFilterChips(); renderTable();
+  if(currentView === 'payments') renderPayments();
+  if(currentView === 'calendar') renderCalendar();
+}
+function renderPayments(){
+  const todayStr = new Date().toISOString().slice(0,10);
+  let list = records.slice();
+  if(paymentSearchTerm){
+    const q = paymentSearchTerm.toLowerCase();
+    list = list.filter(po => (po.poNumber||'').toLowerCase().includes(q) || (po.supplier||'').toLowerCase().includes(q));
+  }
+  if(paymentFilter === 'unpaid') list = list.filter(po => !po.paid);
+  if(paymentFilter === 'paid') list = list.filter(po => !!po.paid);
+  if(paymentFilter === 'overdue') list = list.filter(po => !po.paid && po.paymentDate && po.paymentDate < todayStr && po.poStatus !== 'ยกเลิก');
+  list.sort((a,b)=> (a.paymentDate||'').localeCompare(b.paymentDate||''));
+
+  let totalDue = 0, totalPaid = 0, totalUnpaid = 0, overdueCount = 0;
+  records.forEach(po=>{
+    const t = poTotals(po);
+    totalDue += t.netPayable;
+    if(po.paid) totalPaid += t.netPayable; else totalUnpaid += t.netPayable;
+    if(!po.paid && po.paymentDate && po.paymentDate < todayStr && po.poStatus !== 'ยกเลิก') overdueCount++;
+  });
+  document.getElementById('paymentKpiRow').innerHTML = [
+    { label:'ยอดที่ต้องจ่ายทั้งหมด', value:'฿'+fmtNum(totalDue), sub:'ทุก PO ในระบบ', color:'var(--blue)' },
+    { label:'จ่ายไปแล้ว', value:'฿'+fmtNum(totalPaid), sub:'ยืนยันจ่ายแล้ว', color:'var(--green)' },
+    { label:'ยังค้างจ่าย', value:'฿'+fmtNum(totalUnpaid), sub:'รอดำเนินการจ่าย', color:'var(--amber)' },
+    { label:'เลยกำหนดจ่าย', value:fmtNum(overdueCount)+' PO', sub:'ยังไม่จ่ายและเลยวันครบกำหนด', color:'var(--red)' },
+  ].map(k => `<div class="kpi" style="--accent-color:${k.color}"><div class="label">${k.label}</div><div class="value">${k.value}</div><div class="sub">${k.sub}</div></div>`).join('');
+
+  const chips = [ {key:'all', label:'ทั้งหมด'}, {key:'unpaid', label:'ยังไม่จ่าย'}, {key:'paid', label:'จ่ายแล้ว'}, {key:'overdue', label:'เลยกำหนด'} ];
+  document.getElementById('paymentFilterChips').innerHTML = chips.map(c => `<div class="chip-filter ${paymentFilter===c.key?'active':''}" data-pfilter="${c.key}">${c.label}</div>`).join('');
+  document.querySelectorAll('[data-pfilter]').forEach(el=> el.addEventListener('click', ()=>{ paymentFilter = el.getAttribute('data-pfilter'); renderPayments(); }));
+
+  const tbody = document.getElementById('paymentTableBody');
+  const empty = document.getElementById('paymentEmptyState');
+  if(list.length === 0){ tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display = 'none';
+
+  tbody.innerHTML = list.map(po=>{
+    const t = poTotals(po);
+    const itemSummary = (po.items||[]).map(it=>it.description).filter(Boolean).join(', ');
+    const summaryShort = itemSummary.length > 45 ? itemSummary.slice(0,45)+'…' : itemSummary;
+    const overdue = !po.paid && po.paymentDate && po.paymentDate < todayStr && po.poStatus !== 'ยกเลิก';
+    return `
+    <tr class="main-row">
+      <td data-label="เลขที่ PO / ซัพพลายเออร์">
+        <div class="cell-po">${escapeHtml(po.poNumber||'-')}</div>
+        <div class="cell-supplier" style="margin-top:2px;">${escapeHtml(po.supplier||'-')}</div>
+      </td>
+      <td data-label="รายการสินค้า"><div class="cell-date" style="max-width:220px;">${escapeHtml(summaryShort||'-')}</div></td>
+      <td data-label="วันที่ครบกำหนดจ่าย">
+        ${formatDate(po.paymentDate)}
+        ${overdue ? `<div class="overdue-badge">⏰ เลยกำหนด</div>` : ''}
+      </td>
+      <td data-label="ยอดที่ต้องจ่ายจริง"><div class="money-total">฿${fmtNum(t.netPayable,2)}</div></td>
+      <td data-label="จ่ายแล้ว?">
+        <button type="button" class="pay-toggle-btn" data-paytoggle="${po.id}">
+          <span class="pay-chip ${po.paid?'pay-yes':'pay-no'}">${po.paid ? '✓ จ่ายแล้ว' : '○ ยังไม่จ่าย'}</span>
+        </button>
+      </td>
+      <td data-label="วันที่จ่ายจริง">
+        <input type="date" class="actual-date-input" data-actualdate="${po.id}" value="${po.actualPaymentDate || ''}">
+      </td>
+    </tr>`;
+  }).join('');
+
+  document.querySelectorAll('[data-paytoggle]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.getAttribute('data-paytoggle');
+      const rec = records.find(r=>r.id===id);
+      if(!rec) return;
+      rec.paid = !rec.paid;
+      if(rec.paid && !rec.actualPaymentDate) rec.actualPaymentDate = new Date().toISOString().slice(0,10);
+      rec.updatedAt = new Date().toISOString();
+      const ok = await pushRecords();
+      if(ok){ lastSnapshot = JSON.stringify(records); renderPayments(); renderTable(); toast(rec.paid ? 'บันทึกว่าจ่ายแล้ว' : 'บันทึกว่ายังไม่จ่าย'); }
+    });
+  });
+  document.querySelectorAll('[data-actualdate]').forEach(inp=>{
+    inp.addEventListener('change', async ()=>{
+      const id = inp.getAttribute('data-actualdate');
+      const rec = records.find(r=>r.id===id);
+      if(!rec) return;
+      rec.actualPaymentDate = inp.value;
+      rec.updatedAt = new Date().toISOString();
+      const ok = await pushRecords();
+      if(ok){ lastSnapshot = JSON.stringify(records); toast('บันทึกวันที่จ่ายจริงแล้ว'); }
+    });
+  });
+}
+
+const MONTH_NAMES_TH = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+function renderCalendar(){
+  const year = calCursor.getFullYear();
+  const month = calCursor.getMonth();
+  document.getElementById('calTitle').textContent = MONTH_NAMES_TH[month] + ' ' + (year + 543);
+
+  const firstDay = new Date(year, month, 1);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const todayStr = new Date().toISOString().slice(0,10);
+  const weekdayLabels = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+
+  let html = weekdayLabels.map(w=>`<div class="cal-weekday">${w}</div>`).join('');
+  for(let i=0;i<startWeekday;i++){ html += `<div class="cal-day empty"></div>`; }
+  for(let day=1; day<=daysInMonth; day++){
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const isToday = dateStr === todayStr;
+    const dueTags = records.filter(po=>po.paymentDate===dateStr).map(po=>`<div class="cal-tag due">💰 ${escapeHtml(po.poNumber||'')}</div>`).join('');
+    const deliveryTags = records.filter(po=>po.deliveryDate===dateStr).map(po=>`<div class="cal-tag delivery">📦 ${escapeHtml(po.poNumber||'')}</div>`).join('');
+    const noteEntry = calendarNotes.find(n=>n.date===dateStr);
+    const noteText = noteEntry && noteEntry.text ? noteEntry.text : '';
+    const noteTag = noteText ? `<div class="cal-tag note">📝 ${escapeHtml(noteText.length>22?noteText.slice(0,22)+'…':noteText)}</div>` : '';
+    html += `<div class="cal-day ${isToday?'today':''}" data-caldate="${dateStr}"><div class="cal-day-num">${day}</div>${dueTags}${deliveryTags}${noteTag}</div>`;
+  }
+  document.getElementById('calendarGrid').innerHTML = html;
+  document.querySelectorAll('[data-caldate]').forEach(cell=>{
+    cell.addEventListener('click', ()=> openCalNote(cell.getAttribute('data-caldate')));
+  });
+}
+function openCalNote(dateStr){
+  calSelectedDate = dateStr;
+  document.getElementById('calNoteSub').textContent = thaiFullDate(dateStr);
+  const existing = calendarNotes.find(n=>n.date===dateStr);
+  document.getElementById('calNoteInput').value = existing ? existing.text : '';
+  document.getElementById('calNoteOverlay').classList.remove('hidden');
+}
+function closeCalNote(){ document.getElementById('calNoteOverlay').classList.add('hidden'); calSelectedDate = null; }
+async function saveCalNote(){
+  if(!calSelectedDate) return;
+  const text = document.getElementById('calNoteInput').value.trim();
+  calendarNotes = calendarNotes.filter(n=>n.date!==calSelectedDate);
+  if(text) calendarNotes.push({ date: calSelectedDate, text: text, updatedAt: new Date().toISOString() });
+  const ok = await pushNotes();
+  if(ok){ toast('บันทึกข้อความแล้ว'); closeCalNote(); renderCalendar(); }
+}
+async function pushNotes(){
+  if(!sheetApiUrl) return false;
+  try{
+    await fetch(sheetApiUrl, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({ type:'notes', data: calendarNotes }) });
+    return true;
+  }catch(e){ toast('บันทึกข้อความไม่สำเร็จ', 'error'); return false; }
+}
+
+function switchView(view){
+  currentView = view;
+  document.querySelectorAll('.view-tab').forEach(t=> t.classList.toggle('active', t.getAttribute('data-view')===view));
+  document.getElementById('viewPOList').style.display = view === 'polist' ? '' : 'none';
+  document.getElementById('viewPayments').style.display = view === 'payments' ? '' : 'none';
+  document.getElementById('viewCalendar').style.display = view === 'calendar' ? '' : 'none';
+  if(view === 'payments') renderPayments();
+  if(view === 'calendar') renderCalendar();
+}
 
 /* ---------- Item rows in form ---------- */
 function attachDragHandlers(){
@@ -942,6 +1212,8 @@ function openForm(id=null){
     document.getElementById('f_paymentTerms').value = 'เงินสด';
     document.getElementById('f_vatRate').value = '7';
     document.getElementById('f_site').value = activeSite !== 'all' ? activeSite : 'สำนักงานใหญ่';
+    poNumberManuallyEdited = false;
+    document.getElementById('f_poNumber').value = generateNextPONumber(today);
     renderItemsForm([{ localId: itemUid(), description:'', qty:'', unit:'', unitPrice:'', remainingStock:'', usageRate:'', oldPrice:'', newPrice:'' }]);
   }
   document.getElementById('formOverlay').classList.remove('hidden');
@@ -1134,10 +1406,12 @@ async function refreshFromSheet(showErrors){
     const data = await fetchSheetData();
     const freshRecords = data.records || [];
     const freshSettings = data.settings || { leadTimeDays: 7 };
+    const freshNotes = data.notes || [];
     const snap = JSON.stringify(freshRecords);
     if(!isFormOpen && snap !== lastSnapshot){ records = freshRecords; lastSnapshot = snap; }
     else if(records.length === 0){ records = freshRecords; lastSnapshot = snap; }
     if(freshSettings.leadTimeDays !== settings.leadTimeDays){ settings = freshSettings; document.getElementById('leadTimeInput').value = settings.leadTimeDays; }
+    calendarNotes = freshNotes;
     setConnectionUI(true);
     document.getElementById('syncText').textContent = 'ซิงค์ล่าสุด ' + new Date().toLocaleTimeString('th-TH');
     if(!isFormOpen) renderAll();
@@ -1171,7 +1445,23 @@ async function init(){
   document.getElementById('docPromptSaveBtn').addEventListener('click', confirmDocPrompt);
   document.getElementById('docPromptOverlay').addEventListener('click', (e)=>{ if(e.target.id === 'docPromptOverlay') closeDocPrompt(); });
   document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
-  document.getElementById('f_date').addEventListener('change', (e)=>{ if(!editingId) document.getElementById('f_paymentDate').value = nextFriday(e.target.value); updateDatePreviews(); });
+  document.querySelectorAll('.view-tab').forEach(tab=>{
+    tab.addEventListener('click', ()=> switchView(tab.getAttribute('data-view')));
+  });
+  document.getElementById('paymentSearchInput').addEventListener('input', (e)=>{ paymentSearchTerm = e.target.value; renderPayments(); });
+  document.getElementById('calPrevBtn').addEventListener('click', ()=>{ calCursor = new Date(calCursor.getFullYear(), calCursor.getMonth()-1, 1); renderCalendar(); });
+  document.getElementById('calNextBtn').addEventListener('click', ()=>{ calCursor = new Date(calCursor.getFullYear(), calCursor.getMonth()+1, 1); renderCalendar(); });
+  document.getElementById('calTodayBtn').addEventListener('click', ()=>{ calCursor = new Date(); renderCalendar(); });
+  document.getElementById('calNoteCancelBtn').addEventListener('click', closeCalNote);
+  document.getElementById('calNoteSaveBtn').addEventListener('click', saveCalNote);
+  document.getElementById('f_date').addEventListener('change', (e)=>{
+    if(!editingId){
+      document.getElementById('f_paymentDate').value = nextFriday(e.target.value);
+      if(!poNumberManuallyEdited) document.getElementById('f_poNumber').value = generateNextPONumber(e.target.value);
+    }
+    updateDatePreviews();
+  });
+  document.getElementById('f_poNumber').addEventListener('input', ()=>{ poNumberManuallyEdited = true; });
   document.getElementById('f_paymentDate').addEventListener('change', updateDatePreviews);
   document.getElementById('f_deliveryDate').addEventListener('change', updateDatePreviews);
   document.getElementById('leadTimeInput').addEventListener('change', async (e)=>{
